@@ -31,7 +31,9 @@ getCredentials <- function(host=getOption("httrDefaultHost"), db=NULL) {
       }
       if(length(matchRows) > 0) {
         matchRows <- matchRows[1]
-        return(as.list(keydata[matchRows,]))
+        # Drop missing values so they don't get passed as NA
+        myCred <- as.list(keydata[matchRows,])
+        return(myCred[!is.na(myCred)])
       }
     }
   }

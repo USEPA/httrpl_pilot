@@ -3,6 +3,10 @@
 # The main difference is that mongolite connections are opened separately for each collection, whereas pymongo connections are made once per DB
 # There are also some issues with type differences in R
 
+# This is needed for the URLencode function, which protects passwords in mongoURL
+# This package should be part of the core R installation
+library(utils)
+
 # Load the passwords.R module for credentials management:
 if(!exists("getCredentials")) {
   if(file.exists("passwords.R")) {
@@ -15,13 +19,21 @@ if(!exists("getCredentials")) {
 # Just format a mongo URL based on mongoServer, username, password, and database
 # This currently does no validation to check for problems
 # It also does not currently support anonymous access (no username/password)
-mongoURL <- function(host, user, passwd, db) {
-  paste0("mongodb://", user, ":", passwd, "@", host, "/", db)
+#        A generally better approach might be to just have a ... catch-all param for all extended variables on the mongoURL, convert that to param=var&... string
+#        And as long as that string is not empty, append it with ? separator
+mongoURL <- function(host, user, passwd, db, authSource=NULL, authMechanism=NULL) {
+  passwd <- URLencode(passwd, reserved = TRUE)  # Proect any special characters in passwd
+  if(is.null(authSource) & is.null(authMechanism)){
+    paste0("mongodb://", user, ":", passwd, "@", host, "/", db)
+  }else {
+    paste0("mongodb://", user, ":", passwd, "@", host, "/", db, "?", "authSource=", authSource, "&", "authMechanism=", authMechanism)
+  }
 }
 
 # openMongo - open a connection to a specific collection in a mongo db
-# NOTE: A major difference between pymongo and mongolite interaces is that mongolite connects to a specific collection, not the entire DB
-openMongo <- function(host=getOption("httrDefaultHost"), user=NULL, passwd=NULL, db=NULL, collection=NULL) {
+# NOTE: A major difference between pymongo and mongolite interfaces is that mongolite connects to a specific collection, not the entire DB
+openMongo <- function(host=getOption("httrDefaultHost"), user=NULL, passwd=NULL,
+                      db=NULL, collection=NULL, authSource = NULL, authMechanism = NULL) {
   require(mongolite)
   if(is.null(user) | is.null(passwd)) {
     myCred <- getCredentials(host=host, db=db)
@@ -31,9 +43,15 @@ openMongo <- function(host=getOption("httrDefaultHost"), user=NULL, passwd=NULL,
     if(is.null(passwd)) {
       passwd <- myCred$passwd
     }
+    if(is.null(authSource)) {
+      authSource <- myCred$authSource
+    }
+    if(is.null(authMechanism)) {
+      authMechanism <- myCred$authMechanism
+    }
   }
   # Open the mongo connection
-  mongo(collection=collection, url=mongoURL(host=host, user=user, passwd=passwd, db=db), verbose=getOption("verbose"))
+  mongo(collection=collection, url=mongoURL(host=host, user=user, passwd=passwd, db=db, authSource = authSource, authMechanism = authMechanism), verbose=getOption("verbose"))
 }
 
 # getDocIDs - extract a certain ID field (e.g. sample_id) out of a list of documents
