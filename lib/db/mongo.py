@@ -5,6 +5,8 @@ import pymongo
 import os
 import mongoengine
 import json
+# Required for protecting special characters in passwd strings when passing to mongoURL
+from urllib.parse import quote_plus
 
 # Pull in core function for PipelineLogger class
 from httrplcore import *
@@ -13,9 +15,34 @@ from db.passwords import *
 
 # Generalized functions for working with any data collection in MongoDB
 
+# Function for encoded all keychain fields into a mongo URL
+# Analogous to the mongoURL function in mongo.R
+def mongoURL(host, user, passwd, db, authSource=None, authMechanism=None):
+    """
+    Generate URL to connect to a MongoDB
+    
+    Given host address, username, password, database name, and optional authentication args, generate a URL that can be safely passed to pymongo.MongoClient to open a MongoDB connection.
+    
+    Parameters:
+    host (str) = Host name or IP address of the MongoDB host server, e.g. myserver.epa.gov
+    user (str) = Username to use for the MongoDB connection
+    passwd (str) = Password to use for the MongoDB connection, special characters allowed and will be converted to URL encoded format
+    db (str) = Name of the database to connect to on the MongoDB server
+    authSource (str) = Which database to use for authentication (optional)
+    authMechansim (str) = Authentication mechanism to use (optional)
+    
+    Return Value:
+    (str) = MongoDB connection URL that can be passed directly to pymongo.MongoClient()
+    """
+    passwd = quote_plus(passwd)
+    if authSource is None and authMechanism is None:
+        return f"mongodb://{user}:{passwd}@{host}/{db}"
+    else:
+        return f"mongodb://{user}:{passwd}@{host}/{db}?authSource={authSource}&authMechanism={authMechanism}"
+
 # Open connection to a MongoDB database for reading/writing data
 # This is the primary function used to open DB connections for all httrpl Python code
-def openMongo(host=None,user=None,passwd=None,db=None):
+def openMongo(host=None, user=None, passwd=None, db=None, authSource=None, authMechanism=None):
     """
     Open connection to a MongoDB database for reading/writing data.
     
@@ -31,13 +58,20 @@ def openMongo(host=None,user=None,passwd=None,db=None):
     if not user or passwd:
         # Check defkc for host,db pair first
         if defkc.hasKey(host=host,db=db):
-            user = defkc.getUser(host,db)
-            passwd = defkc.getPasswd(host,db)
+            myCred = defkc.getKey(host,db)
+            # NOTE: If the keychain entry is missing user or passwd fields, this will lead to an error.
+            user = myCred['user']
+            passwd = myCred['passwd']
+            # authSource and authMechanism are optional, not all keys have/need this information
+            if 'authSource' in myCred:
+                authSource = myCred['authSource']
+            if 'authMechanism' in myCred:
+                authMechanism = myCred['authMechanism']
         else:
             # NOTE: This is the original auto-load of user/passwd - if both defkc default file and this file are missing, function will crash
             user,passwd = defaultLogin()
         
-    con2 = pymongo.MongoClient("mongodb://%s:%s@%s/%s" % (user,passwd,host,db))
+    con2 = pymongo.MongoClient(mongoURL(host=host, user=user, passwd=passwd, db=db, authSource=authSource, authMechanism=authMechanism))
     DB = con2[db]
     return DB
 

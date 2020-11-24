@@ -121,6 +121,24 @@ class Keychain:
                 return key['passwd']
         return None
     
+    def getKey(self, host, db):
+        """
+        Get a key from the keychain
+        
+        Search keychain.keylist for the first entry matching host and db and return the full dict for that entry in the keychain
+        
+        Parameters:
+        host: The mongoDB host
+        db: The mongoDB database under the specified host
+        
+        Returns:
+        (dict) = The requested "key" as a dict containing all fields, or None if no matching entries found
+        """
+        for key in self.keylist:
+            if (key['host'] == host) and (key['db'] == db):
+                # NOTE: the copy function is used here so that changes to key in the calling function do not change what is in the KeyChain object
+                return key.copy()
+    
     def findKey(self, host, db):
         """
         Find the index of specific key matching host,db pair in the keychain.
@@ -140,7 +158,7 @@ class Keychain:
                 return i
         return -1
     
-    def addKey(self, host:str, db:str, user:str, passwd:str):
+    def addKey(self, host:str, db:str, user:str, passwd:str, authSource:str=None, authMechanism:str=None):
         """
         Add new key information to the keychain.
         
@@ -151,8 +169,14 @@ class Keychain:
         db (str): The mongoDB database under the specified host
         user (str): The username for mongoDB host/database
         passwd (str): The password associated with username
+        authSource (str): The authorization source (optional - if none, leave it out of the key)
+        authMechanism (str): The authorization mechanisms (optional - if none, leave it out of the key)
         """
         newKey = {'host':host, 'db':db, 'user':user, 'passwd':passwd}
+        if authSource is not None:
+            newKey['authSource'] = authSource
+        if authMechanism is not None:
+            newKey['authMechanism'] = authMechanism
         old = self.findKey(host, db)
         if old == -1:
             self.keylist.append(newKey)
@@ -234,7 +258,7 @@ def setDefaultLogin(user:str=None, passwd:str=None, pwfile:str=DEFAULT_PASSWD, i
     print('Wrote new default login credentials to private file: %s' % pwfile)
     return True
 
-def addKeychainEntry(host:str=None, db:str=None, user:str=None, passwd:str=None, keyfile:str=DEFAULT_KEYCHAIN, interactive:bool=False) -> bool:
+def addKeychainEntry(host:str=None, db:str=None, user:str=None, passwd:str=None, authSource:str=None, authMechanism:str=None, keyfile:str=DEFAULT_KEYCHAIN, interactive:bool=False) -> bool:
     """
     Add a new login key to existing keychain on disk.
     
@@ -245,6 +269,8 @@ def addKeychainEntry(host:str=None, db:str=None, user:str=None, passwd:str=None,
     db (str): The mongoDB database under the specified host
     user (str): The username for mongoDB host/database
     passwd (str): The password associated with username
+    authSource (str): The authorization source associated with host/database (optional)
+    authMechanism (str): The authorization mechanism associated with host/database (optional)
     keyfile (str): The keychain to load from disk, defaults to global DEFAULT_KEYCHAIN
     interactive (bool): Should the function prompt user for missing key info, defaults to False
     
@@ -261,6 +287,16 @@ def addKeychainEntry(host:str=None, db:str=None, user:str=None, passwd:str=None,
             user = input('%s/%s Username: ' % (host,db))
         if passwd is None:
             passwd = getpass.getpass(prompt='%s/%s Password: ' % (host,db))
+        if authSource is None:
+            authSource = input('%s/%s Authorization Source (Leave Blank to Skip):' % (host,db))
+            # Change blank to None here
+            if authSource == "":
+                authSource = None
+        if authMechanism is None:
+            authMechanism = input('%s/%s Authorization Mechanism (Leave Blank to Skip):' % (host,db))
+            # Change blank to None here
+            if authMechanism == "":
+                authMechanism = None
         if keyfile is None:
             keyfile = input('Path/File to Store Keychain: ')
     # If not interactive, check for missing params
@@ -301,7 +337,7 @@ def addKeychainEntry(host:str=None, db:str=None, user:str=None, passwd:str=None,
             # Non-interactive mode, just print a message that a key is being overwritten
             print('Overwriting existing login key for %s/%s in %s' % (host, db, keyfile))
     # Add the new key
-    mykc.addKey(host, db, user, passwd)
+    mykc.addKey(host, db, user, passwd, authSource, authMechanism)
     # Write back to disk
     mykc.save(keyfile)
     print('Wrote updated keychain to private file: %s' % keyfile)
